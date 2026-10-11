@@ -32,32 +32,39 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file).convert("RGB")
+    try:
+        image = Image.open(uploaded_file).convert("RGB")
 
-    # Two-column layout
-    col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-    # Original image on the left
-    with col1:
-        st.subheader("📷 Uploaded Image")
-        st.image(
-            image,
-            caption="Original Road Image",
-             width=300
-        )
-
-    # Detection button
-    if st.button("🔍 Detect Helmet", type="primary"):
-        api_key = os.getenv("ROBOFLOW_API_KEY")
-
-        if not api_key:
-            st.error(
-                "API key not found. Set "
-                "ROBOFLOW_API_KEY in your terminal "
-                "and restart the app."
+        # Original image
+        with col1:
+            st.subheader("📷 Uploaded Image")
+            st.image(
+                image,
+                caption="Original Road Image",
+                width=300
             )
 
-        else:
+        if st.button("🔍 Detect Helmet", type="primary"):
+
+            # Read API key from Streamlit Secrets or environment
+            try:
+                api_key = st.secrets.get("ROBOFLOW_API_KEY", "")
+            except Exception:
+                api_key = ""
+
+            if not api_key:
+                api_key = os.getenv("ROBOFLOW_API_KEY", "")
+
+            if not api_key:
+                st.error(
+                    "API key not found. Configure "
+                    "ROBOFLOW_API_KEY in Streamlit Secrets "
+                    "or your local environment."
+                )
+                st.stop()
+
             try:
                 client = InferenceHTTPClient(
                     api_url="https://serverless.roboflow.com",
@@ -68,7 +75,6 @@ if uploaded_file is not None:
                     )
                 )
 
-                # Save image temporarily for inference
                 image_path = None
 
                 try:
@@ -93,7 +99,7 @@ if uploaded_file is not None:
 
                 predictions = result.get("predictions", [])
 
-                # Draw detection boxes
+                # Draw colour-coded detection boxes
                 annotated = image.copy()
                 draw = ImageDraw.Draw(annotated)
 
@@ -103,7 +109,7 @@ if uploaded_file is not None:
                     w = pred.get("width", 0)
                     h = pred.get("height", 0)
 
-                    label = pred.get("class", "object")
+                    label = str(pred.get("class", "object"))
                     confidence = pred.get("confidence", 0)
 
                     left = x - w / 2
@@ -111,30 +117,42 @@ if uploaded_file is not None:
                     right = x + w / 2
                     bottom = y + h / 2
 
+                    # Match colour to the model's class label
+                    normalized_label = label.lower().strip()
+
+                    if normalized_label == "helmet":
+                        box_color = "lime"
+                    elif normalized_label == "no_helmet":
+                        box_color = "red"
+                    elif normalized_label == "license_plate":
+                        box_color = "dodgerblue"
+                    else:
+                        box_color = "yellow"
+
                     draw.rectangle(
                         [left, top, right, bottom],
-                        outline="lime",
+                        outline=box_color,
                         width=4
                     )
 
                     draw.text(
                         (left, max(0, top - 20)),
                         f"{label}: {confidence:.0%}",
-                        fill="lime",
+                        fill=box_color,
                         stroke_width=1,
                         stroke_fill="black"
                     )
 
-                # Detection image on the right
+                # Detection image
                 with col2:
                     st.subheader("✅ Detection Result")
                     st.image(
                         annotated,
                         caption="Helmet Detection Output",
-                         width=300
+                        width=300
                     )
 
-                # Results below both images
+                # Detection summary
                 st.divider()
                 st.subheader("📊 Detection Summary")
 
@@ -144,7 +162,9 @@ if uploaded_file is not None:
                         "detection(s)."
                     )
 
-                    for index, pred in enumerate(predictions, start=1):
+                    for index, pred in enumerate(
+                        predictions, start=1
+                    ):
                         label = pred.get("class", "Unknown")
                         confidence = pred.get("confidence", 0)
 
@@ -160,12 +180,34 @@ if uploaded_file is not None:
                         "helmet or rider is present."
                     )
 
-            except Exception as error:
+            except Exception:
                 st.error(
-                    "Inference failed. Check your API key, "
-                    "model access, and internet connection."
+                    "Detection failed. Check your API key, "
+                    "model access, and connection. "
+                    "See app logs for technical details."
                 )
-                st.caption(str(error))
+
+    except Exception:
+        st.error(
+            "Unable to open this image. Please upload "
+            "a valid JPG, JPEG, or PNG image."
+        )
+
+# Colour legend
+st.divider()
+st.subheader("🎨 Detection Colour Guide")
+
+st.markdown(
+    """
+    🟢 **Helmet** — Green box
+
+    🔴 **No Helmet** — Red box
+
+    🔵 **License Plate** — Blue box
+
+    🟡 **Other detected object** — Yellow box
+    """
+)
 
 # Footer
 st.divider()
