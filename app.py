@@ -1,229 +1,287 @@
 
 import os
-import tempfile
-
 import streamlit as st
 from PIL import Image, ImageDraw
 from inference_sdk import InferenceHTTPClient
 
-
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
     page_title="RoadGuard AI",
-    page_icon="🛣️",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_icon="🛡️",
+    layout="wide"
 )
-
-API_URL = "https://serverless.roboflow.com"
-MODEL_ID = "helmet-and-no-helmet-rider-detection-8wgzg/2"
-
 
 # ---------------- CUSTOM CSS ----------------
 st.markdown("""
 <style>
-    .stApp {
-        background: #E9EEF5;
-        color: #233247;
-    }
-
-    .block-container {
-        max-width: 1400px;
-        padding-top: 0.3rem;
-        padding-bottom: 2rem;
-    }
-
-    [data-testid="stHeader"] {
-        background: transparent;
-    }
-
-    [data-testid="stToolbar"] {
-        right: 1rem;
-    }
-
-    [data-testid="stSidebar"] {
-        background: #F5F7FA;
-        border-right: 1px solid #D7DFEA;
-    }
-
-    [data-testid="stSidebar"] .block-container {
-        padding-top: 0.5rem;
-    }
-
-    .hero {
-        background: linear-gradient(115deg, #243B5A, #426B9B);
-        color: white;
-        padding: 24px 28px;
-        border-radius: 16px;
-        margin: 0 0 20px 0;
-        box-shadow: 0 5px 16px rgba(36, 59, 90, 0.14);
-    }
-
-    .hero h1 {
-        color: white;
-        font-size: 2.1rem;
-        margin: 0 0 8px 0;
-    }
-
-    .hero p {
-        color: #E6EEF8;
-        font-size: 1rem;
-        margin: 0;
-    }
-
-    .section-title {
-        color: #243B5A;
-        font-size: 1.3rem;
-        font-weight: 700;
-        margin: 22px 0 12px 0;
-    }
-
-    .metric-card {
-        background: #FFFFFF;
-        padding: 18px;
-        border-radius: 12px;
-        border: 1px solid #D9E2EE;
-        min-height: 100px;
-    }
-
-    .metric-label {
-        font-size: 0.95rem;
-        color: #53657B;
-        margin-bottom: 8px;
-    }
-
-    .metric-value {
-        font-size: 1.8rem;
-        font-weight: 750;
-    }
-
-    .stButton > button {
-        background: #315D96;
-        color: white;
-        border: none;
-        border-radius: 9px;
-        padding: 0.65rem 1rem;
-        font-weight: 650;
-        width: 100%;
-    }
-
-    .stButton > button:hover {
-        background: #243B5A;
-        color: white;
-    }
-
-    div[data-testid="stFileUploader"] {
-        background: white;
-        border: 1px dashed #9BAEC6;
-        border-radius: 12px;
-        padding: 12px;
-    }
-
-    @media (max-width: 700px) {
-        .hero {
-            padding: 18px;
-        }
-
-        .hero h1 {
-            font-size: 1.65rem;
-        }
-    }
+.stApp {
+    background: #E9EEF5;
+    color: #243B5A;
+}
+.block-container {
+    padding-top: 1.2rem;
+}
+.roadguard-header {
+    background: linear-gradient(110deg, #243B5A, #426B9B);
+    padding: 22px 26px;
+    border-radius: 14px;
+    margin: 14px 0 22px;
+}
+.roadguard-header h1 {
+    color: white;
+    margin: 0;
+    font-size: 30px;
+}
+.roadguard-header p {
+    color: #E2EAF5;
+    margin: 6px 0 0;
+}
+div.stButton > button,
+div.stLinkButton > a {
+    background: #315D96;
+    color: white !important;
+    border: 1px solid #315D96;
+    border-radius: 8px;
+    font-weight: 600;
+    min-height: 40px;
+}
+div.stButton > button:hover,
+div.stLinkButton > a:hover {
+    background: #243B5A;
+    color: white !important;
+}
+.result-card {
+    background: white;
+    border: 1px solid #D4DFEC;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin: 8px 0 12px;
+}
+.result-card h4 {
+    color: #243B5A;
+    margin: 0;
+}
+.warning-box {
+    background: #FEE2E2;
+    color: #991B1B;
+    border-left: 5px solid #DC2626;
+    padding: 14px;
+    border-radius: 8px;
+    font-weight: 650;
+    margin: 12px 0;
+}
+.safe-box {
+    background: #DCFCE7;
+    color: #166534;
+    border-left: 5px solid #16A34A;
+    padding: 14px;
+    border-radius: 8px;
+    font-weight: 650;
+    margin: 12px 0;
+}
+.neutral-box {
+    background: #DBEAFE;
+    color: #1E40AF;
+    border-left: 5px solid #2563EB;
+    padding: 14px;
+    border-radius: 8px;
+    margin: 12px 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
+# ---------------- SESSION STATE ----------------
+if "show_help" not in st.session_state:
+    st.session_state.show_help = False
+
+if "show_share" not in st.session_state:
+    st.session_state.show_share = False
+
+if "result_data" not in st.session_state:
+    st.session_state.result_data = None
+
+if "result_signature" not in st.session_state:
+    st.session_state.result_signature = None
+
+
+# ---------------- NAVBAR ----------------
+title_col, detect_col, help_col, share_col = st.columns(
+    [5.2, 1.25, 1.0, 1.15],
+    vertical_alignment="center"
+)
+
+with title_col:
+    st.markdown("""
+    <div style="padding:5px 0">
+        <span style="font-size:27px">🛡️</span>
+        <span style="font-size:25px;font-weight:750;color:#243B5A">
+            RoadGuard AI
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+with detect_col:
+    if st.button("🔍 Detect", use_container_width=True):
+        st.session_state.show_help = False
+        st.session_state.show_share = False
+
+with help_col:
+    if st.button("❔ Help", use_container_width=True):
+        st.session_state.show_help = not st.session_state.show_help
+        st.session_state.show_share = False
+
+with share_col:
+    if st.button("↗ Share", use_container_width=True):
+        st.session_state.show_share = not st.session_state.show_share
+        st.session_state.show_help = False
+
+
+# ---------------- HELP MENU ----------------
+if st.session_state.show_help:
+    with st.container(border=True):
+        st.markdown("### How to Use")
+        st.markdown("""
+        1. Upload a clear road image.
+        2. Click **Detect Image**.
+        3. Compare the original and detected images.
+        4. Review the detection summary and safety warning.
+        """)
+
+        st.markdown("### Detection Instructions")
+        st.markdown("""
+        - 🟢 **Helmet:** A helmet was detected.
+        - 🔴 **No Helmet:** A possible helmet violation was detected.
+        - 🔵 **License Plate:** A license plate was detected.
+        - ⚠️ Predictions may be incorrect. Verify results before taking action.
+        """)
+
+
+# ---------------- SHARE MENU ----------------
+if st.session_state.show_share:
+    with st.container(border=True):
+        st.markdown("### Share RoadGuard AI")
+        st.write("Share the project repository with others.")
+
+        st.link_button(
+            "Open GitHub Repository ↗",
+            "https://github.com/hanishapalanisamy-creator/RoadGuard-AI",
+            use_container_width=True
+        )
+
+        st.caption(
+            "To share your live app, copy its URL from your browser."
+        )
+
+
+# ---------------- MAIN HEADER ----------------
+st.markdown("""
+<div class="roadguard-header">
+    <h1>Intelligent Road Safety Monitoring</h1>
+    <p>AI-powered helmet and license plate detection</p>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ---------------- ROBOFLOW CONFIG ----------------
+MODEL_ID = "helmet-and-no-helmet-rider-detection-8wgzg/2"
+API_URL = "https://serverless.roboflow.com"
+
+api_key = st.secrets.get(
+    "ROBOFLOW_API_KEY",
+    os.getenv("ROBOFLOW_API_KEY", "")
+)
+
+
 # ---------------- HELPER FUNCTIONS ----------------
-def get_api_key():
-    """Read API key from Streamlit Secrets or environment."""
-    try:
-        api_key = st.secrets.get("ROBOFLOW_API_KEY", "")
-    except Exception:
-        api_key = ""
-
-    return api_key or os.getenv("ROBOFLOW_API_KEY", "")
-
-
 def normalize_label(label):
-    """Normalize labels for counting and box colors."""
-    label = str(label).lower().replace("-", "_").strip()
+    return (
+        str(label)
+        .lower()
+        .replace("_", " ")
+        .replace("-", " ")
+        .strip()
+    )
 
-    if "no_helmet" in label or "without_helmet" in label:
-        return "no_helmet"
 
-    if "helmet" in label:
-        return "helmet"
+def classify_label(label):
+    name = normalize_label(label)
 
     if (
-        "license" in label
-        or "number_plate" in label
-        or "numberplate" in label
+        "no helmet" in name
+        or "without helmet" in name
+        or "nohelmet" in name
+    ):
+        return "no_helmet"
+
+    if (
+        "license plate" in name
+        or "number plate" in name
+        or "licence plate" in name
     ):
         return "license_plate"
 
-    return label
+    if "helmet" in name:
+        return "helmet"
 
-
-def get_box_color(label):
-    label = normalize_label(label)
-
-    if label == "helmet":
-        return "#16A34A"
-
-    if label == "no_helmet":
-        return "#DC2626"
-
-    if label == "license_plate":
-        return "#2563EB"
-
-    return "#64748B"
+    return "other"
 
 
 def draw_detections(image, predictions):
-    """Draw bounding boxes and confidence labels."""
     output = image.copy()
     draw = ImageDraw.Draw(output)
 
-    image_width, image_height = output.size
+    colors = {
+        "helmet": "#16A34A",
+        "no_helmet": "#DC2626",
+        "license_plate": "#2563EB",
+        "other": "#F59E0B"
+    }
 
-    for prediction in predictions:
+    for pred in predictions:
         try:
-            x = float(prediction["x"])
-            y = float(prediction["y"])
-            width = float(prediction["width"])
-            height = float(prediction["height"])
+            x = float(pred["x"])
+            y = float(pred["y"])
+            width = float(pred["width"])
+            height = float(pred["height"])
 
-            x1 = max(0, int(x - width / 2))
-            y1 = max(0, int(y - height / 2))
-            x2 = min(image_width - 1, int(x + width / 2))
-            y2 = min(image_height - 1, int(y + height / 2))
+            x1 = x - width / 2
+            y1 = y - height / 2
+            x2 = x + width / 2
+            y2 = y + height / 2
 
-            label = str(prediction.get("class", "object"))
-            confidence = float(prediction.get("confidence", 0))
-            color = get_box_color(label)
+            label = str(pred.get("class", "object"))
+            category = classify_label(label)
+            color = colors[category]
+
+            confidence = float(pred.get("confidence", 0))
+            caption = f"{label} {confidence:.0%}"
 
             draw.rectangle(
-                [x1, y1, x2, y2],
+                (x1, y1, x2, y2),
                 outline=color,
-                width=max(3, image_width // 300)
+                width=4
             )
 
-            text = f"{label} {confidence:.0%}"
-            label_y = max(0, y1 - 23)
-            text_box = draw.textbbox((x1, label_y), text)
+            bbox = draw.textbbox((0, 0), caption)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+
+            label_top = max(0, y1 - text_height - 8)
 
             draw.rectangle(
-                [
-                    text_box[0] - 3,
-                    text_box[1] - 2,
-                    text_box[2] + 5,
-                    text_box[3] + 3
-                ],
+                (
+                    x1,
+                    label_top,
+                    x1 + text_width + 8,
+                    label_top + text_height + 6
+                ),
                 fill=color
             )
 
             draw.text(
-                (x1 + 2, label_y),
-                text,
+                (x1 + 4, label_top + 3),
+                caption,
                 fill="white"
             )
 
@@ -240,200 +298,154 @@ def count_predictions(predictions):
         "license_plate": 0
     }
 
-    for prediction in predictions:
-        label = normalize_label(prediction.get("class", ""))
+    for pred in predictions:
+        category = classify_label(pred.get("class", ""))
 
-        if label in counts:
-            counts[label] += 1
+        if category in counts:
+            counts[category] += 1
 
     return counts
 
 
-def render_metric(label, value, color):
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">{label}</div>
-        <div class="metric-value" style="color:{color};">
-            {value}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ---------------- SIDEBAR ----------------
-with st.sidebar:
-    with st.expander("How to Use", expanded=False):
-        st.markdown("""
-        **1. Upload Image**
-
-        Choose a clear road or rider image.
-
-        **2. Detect**
-
-        Click the Detect Road Safety button.
-
-        **3. View Images**
-
-        Original Image appears on the left and
-        Detected Image appears on the right.
-
-        **4. Detection Summary**
-
-        Check the helmet, no-helmet, and license plate counts.
-        """)
-
-    st.divider()
-    st.markdown("### RoadGuard AI")
-    st.caption("Intelligent Road Safety Monitoring")
-
-
-# ---------------- HEADER ----------------
-st.markdown("""
-<div class="hero">
-    <h1>RoadGuard AI</h1>
-    <p>Intelligent Road Safety Monitoring using Computer Vision</p>
-</div>
-""", unsafe_allow_html=True)
-
-
 # ---------------- IMAGE UPLOAD ----------------
 st.markdown(
-    '<div class="section-title">Upload Road Image</div>',
+    '<h3 style="color:#243B5A">Upload Road Image</h3>',
     unsafe_allow_html=True
 )
 
 uploaded_file = st.file_uploader(
-    "Choose a road or rider image",
+    "Choose an image",
     type=["jpg", "jpeg", "png"],
-    help="Upload a clear image for AI detection."
+    help="Upload a clear road image for detection."
 )
 
-
-# ---------------- RUN DETECTION ----------------
 if uploaded_file is not None:
     try:
         original_image = Image.open(uploaded_file).convert("RGB")
+    except Exception:
+        st.error("The selected file could not be opened as an image.")
+        st.stop()
 
-        detect_clicked = st.button(
-            "Detect Road Safety",
-            use_container_width=True
-        )
+    # Clear stale results when the selected file changes.
+    signature = (uploaded_file.name, uploaded_file.size)
 
-        if detect_clicked:
-            api_key = get_api_key()
+    if st.session_state.result_signature != signature:
+        st.session_state.result_data = None
+        st.session_state.result_signature = signature
 
-            if not api_key:
-                st.error(
-                    "API key not found. Configure ROBOFLOW_API_KEY "
-                    "in Streamlit Secrets or your local environment."
-                )
-            else:
-                temp_path = None
-
-                try:
-                    with st.spinner("Detecting objects..."):
-                        client = InferenceHTTPClient(
-                            api_url=API_URL,
-                            api_key=api_key
-                        )
-
-                        with tempfile.NamedTemporaryFile(
-                            suffix=".jpg",
-                            delete=False
-                        ) as temp_file:
-                            temp_path = temp_file.name
-                            original_image.save(
-                                temp_path,
-                                format="JPEG"
-                            )
-
-                        result = client.infer(
-                            temp_path,
-                            model_id=MODEL_ID
-                        )
-
-                        predictions = result.get("predictions", [])
-
-                        detected_image = draw_detections(
-                            original_image,
-                            predictions
-                        )
-
-                        counts = count_predictions(predictions)
-
-                        st.session_state["roadguard_result"] = {
-                            "original": original_image.copy(),
-                            "detected": detected_image,
-                            "counts": counts,
-                            "uploaded_name": uploaded_file.name
-                        }
-
-                except Exception:
-                    st.error(
-                        "Detection failed. Check the API key, model ID, "
-                        "internet connection, and Roboflow usage limits."
+    if st.button(
+        "🔍 Detect Image",
+        key="run_detection",
+        use_container_width=True
+    ):
+        if not api_key:
+            st.error(
+                "Roboflow API key is missing. Add ROBOFLOW_API_KEY "
+                "in Streamlit Cloud Settings → Secrets."
+            )
+        else:
+            try:
+                with st.spinner("Analysing image with RoadGuard AI..."):
+                    client = InferenceHTTPClient(
+                        api_url=API_URL,
+                        api_key=api_key
                     )
 
-                finally:
-                    if temp_path and os.path.exists(temp_path):
-                        os.remove(temp_path)
+                    uploaded_file.seek(0)
 
-    except Exception:
-        st.error("Unable to read this image. Please upload another image.")
+                    response = client.infer(
+                        uploaded_file,
+                        model_id=MODEL_ID
+                    )
+
+                    predictions = response.get("predictions", [])
+
+                    detected_image = draw_detections(
+                        original_image,
+                        predictions
+                    )
+
+                    counts = count_predictions(predictions)
+
+                    st.session_state.result_data = {
+                        "original": original_image.copy(),
+                        "detected": detected_image,
+                        "counts": counts
+                    }
+
+                    st.session_state.result_signature = signature
+
+            except Exception as exc:
+                st.error(
+                    "Detection failed. Check your API key, model ID, "
+                    "internet connection, and Roboflow model availability."
+                )
+                st.caption(f"Technical details: {exc}")
 
 
 # ---------------- DISPLAY RESULTS ----------------
-saved_result = st.session_state.get("roadguard_result")
+result = st.session_state.result_data
 
-if (
-    saved_result is not None
-    and uploaded_file is not None
-    and saved_result.get("uploaded_name") == uploaded_file.name
-):
-    # Original image on the left; detected image on the right.
-    left_col, right_col = st.columns(2, gap="large")
+if result is not None:
+    st.markdown("---")
 
-    with left_col:
-        st.markdown("**Original Image**")
+    original_col, detected_col = st.columns(2, gap="medium")
+
+    with original_col:
+        st.markdown(
+            '<div class="result-card"><h4>Original Image</h4></div>',
+            unsafe_allow_html=True
+        )
         st.image(
-            saved_result["original"],
+            result["original"],
             use_container_width=True
         )
 
-    with right_col:
-        st.markdown("**Detected Image**")
+    with detected_col:
+        st.markdown(
+            '<div class="result-card"><h4>Detected Image</h4></div>',
+            unsafe_allow_html=True
+        )
         st.image(
-            saved_result["detected"],
+            result["detected"],
             use_container_width=True
         )
 
-    # Detection summary only.
-    st.markdown(
-        '<div class="section-title">Detection Summary</div>',
-        unsafe_allow_html=True
-    )
+    counts = result["counts"]
 
-    counts = saved_result["counts"]
+    # ---------------- HELMET ALERT ----------------
+    if counts["no_helmet"] > 0:
+        st.markdown("""
+        <div class="warning-box">
+            ⚠️ Helmet Not Detected — Please wear a helmet for safety.
+        </div>
+        """, unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns(3, gap="medium")
+    elif counts["helmet"] > 0:
+        st.markdown("""
+        <div class="safe-box">
+            ✅ Helmet detected in the uploaded image.
+            Please verify the model result.
+        </div>
+        """, unsafe_allow_html=True)
 
-    with col1:
-        render_metric(
-            "🟢 Helmet",
-            counts["helmet"],
-            "#16A34A"
-        )
+    else:
+        st.markdown("""
+        <div class="neutral-box">
+            ℹ️ No helmet-related detection was found.
+            This does not confirm that every rider is safe.
+        </div>
+        """, unsafe_allow_html=True)
 
-    with col2:
-        render_metric(
-            "🔴 No Helmet",
-            counts["no_helmet"],
-            "#DC2626"
-        )
+    # ---------------- DETECTION SUMMARY ----------------
+    st.markdown("""
+    <div class="result-card">
+        <h4>Detection Summary</h4>
+    </div>
+    """, unsafe_allow_html=True)
 
-    with col3:
-        render_metric(
-            "🔵 License Plate",
-            counts["license_plate"],
-            "#2563EB"
-        )
+    col1, col2, col3 = st.columns(3)
+
+    col1.markdown(f"🟢 **Helmet:** {counts['helmet']}")
+    col2.markdown(f"🔴 **No Helmet:** {counts['no_helmet']}")
+    col3.markdown(f"🔵 **License Plate:** {counts['license_plate']}")
