@@ -227,7 +227,7 @@ if uploaded_file is not None:
                 st.image(
                     result_image,
                     caption="RoadGuard AI Detection Result",
-                    use_container_width=True
+                    width=300
                 )
 
                 st.subheader("📊 Detection Summary")
